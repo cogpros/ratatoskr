@@ -56,7 +56,7 @@ This is the dual-LLM / CaMeL pattern. It does not solve injection — the extrac
 2. Fetches via platform-aware routing (see Routing below)
 3. Tier 1: regex pre-scan for high-confidence injection patterns
 4. Tier 2: Red Viper checks when Tier 1 flags, or when content is LLM-processed
-5. Summarize (default) / raw / JSON output
+5. Quarantined extraction (default) / raw / summary / JSON output
 6. Tier 3: post-scan on output for system-prompt leakage
 
 A page that fails the scan returns `[QUARANTINED]`, not content. That is the gate doing its job -- pages that quote prompt-injection text (security writeups, leaked system prompts) will quarantine even when benign. Use a search-engine summary for those.
