@@ -1,15 +1,20 @@
-"""red_viper_checks.py -- Injection detection functions.
+"""red_viper_checks.py -- Red Viper detection functions as importable library.
 
-Pure local pattern analysis on raw content. No LLM calls.
-Used as Tier 2 in Heimdall's gate.
+Extracted from red-viper.py for use as Tier 2 in Heimdall's gate.
+No LLM calls. Pure local pattern analysis on raw content.
+
+Used by: heimdall.py (Tier 2 + Tier 3 scan)
+Original: red-viper.py (full adversarial test runner)
 """
 
 import re
 
-# System keywords that should never appear in public-facing content.
-# Customize this list for your own stack.
+# System keywords that should never appear in public-facing content
 SYSTEM_KEYWORDS = [
-    "system prompt", "api key", "secret key", "bearer token",
+    "soul.md", "quartermaster", "openclaw", "ratatoskr", "ghost hours",
+    "cogpros", "accordion primitive", "capability delta", "pyra_m1d",
+    "closed-loop memory", "det-router", "voice-dna.md", "eom",
+    "handoff", "x-radar", "red-viper"
 ]
 
 # Phrases that indicate active manipulation attempts (not just keywords)
@@ -32,7 +37,7 @@ UNICODE_TRICKS = [
 
 
 def check_content(text, tier1_flags):
-    """Analyze flagged content using detection logic.
+    """Analyze flagged content using Red Viper detection logic.
 
     Args:
         text: Raw fetched content
@@ -70,7 +75,7 @@ def check_content(text, tier1_flags):
         score += 1
         findings.append("1 manipulation marker found")
 
-    # Check for system keyword density
+    # Check for system keyword density (someone fishing for our stack)
     keyword_hits = [kw for kw in SYSTEM_KEYWORDS if kw in text_lower]
     if len(keyword_hits) >= 3:
         score += 3
