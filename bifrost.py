@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """bifrost.py -- Boundary gate. The Bifrost itself. Nothing crosses uninspected.
 
-Three-tier injection scan: regex pre-scan, Red Viper checks, post-scan.
-Decides what enters agent context and what gets quarantined.
+The pipeline entry point: validate the URL, fetch via platform-aware routing,
+run the three-tier injection scan, then return output in the requested mode.
 
-Used by: EOM (via ratatoskr skill), Odin (via huginn.py), X Radar cron.
+Modes (--mode flags in main()):
+  extract (default) -- quarantined extraction to a tainted JSON schema (agent-safe)
+  raw               -- full cleaned text, UNGATED (human reading only; warns)
+  summary           -- prose summary (needs an LLM key; else returns cleaned text)
+  passthrough       -- scan only, return raw content (pipeline use)
 """
 
 import sys
@@ -345,7 +349,25 @@ def process(url, mode="summary", api_key=None):
         return result
 
     # ── Analysis (content passed Tier 1+2) ─────────────────────────────
-    if mode == "raw":
+    if mode == "extract":
+        # Quarantined extraction: a sandboxed, tool-less model reads the
+        # untrusted text and returns a tainted schema the agent consumes as
+        # data. This is the default for agent fetches. See extractor.py.
+        try:
+            from extractor import extract as _extract
+            schema = _extract(content, url, content_type=platform or "web")
+        except Exception as e:
+            schema = {
+                "source_url": url, "content_type": platform or "web",
+                "origin": "untrusted-web", "title": "[extractor unavailable]",
+                "claims": [], "entities": [], "key_quotes": [], "links": [],
+                "extraction_confidence": 0.0, "injection_signals": [],
+                "provenance": {"degraded": True,
+                               "degraded_reason": f"extractor import/run failed: {type(e).__name__}"},
+            }
+        result["schema"] = schema
+        output = json.dumps(schema, indent=2)
+    elif mode == "raw":
         output = content
     elif mode == "summary":
         # Skip redundant LLM call if content already LLM-processed
@@ -378,9 +400,13 @@ def format_output(result, json_mode=False):
     lines = []
 
     # Header
-    mode_label = {"raw": "FULL TEXT", "summary": "SUMMARY", "passthrough": "PASSTHROUGH"}
+    mode_label = {"raw": "FULL TEXT (UNGATED)", "summary": "SUMMARY",
+                  "passthrough": "PASSTHROUGH", "extract": "EXTRACT (quarantined schema)"}
     label = mode_label.get(result["mode"], result["mode"].upper())
     lines.append(f"[Bifrost | {label}] {result['url']}")
+    if result["mode"] == "raw" and not result["quarantined"]:
+        lines.append("[!] RAW MODE: untrusted web text follows UNGATED -- for human reading "
+                     "only, never feed to a tool-capable agent. Use --extract for agents.")
 
     # Scan status
     if result["quarantined"]:
@@ -426,13 +452,26 @@ def format_output(result, json_mode=False):
 def main():
     parser = argparse.ArgumentParser(description="Bifrost -- boundary gate")
     parser.add_argument("url", help="URL to fetch and scan")
-    parser.add_argument("--raw", action="store_true", help="Return full cleaned text")
+    parser.add_argument("--extract", action="store_true",
+                        help="Quarantined extraction to a tainted JSON schema (default; safe for agents)")
+    parser.add_argument("--raw", action="store_true",
+                        help="Return full cleaned text UNGATED (human reading only, warns)")
+    parser.add_argument("--summary", action="store_true",
+                        help="Prose summary (legacy; needs an LLM key, else returns cleaned text)")
     parser.add_argument("--json", action="store_true", help="JSON output mode")
     parser.add_argument("--passthrough", action="store_true",
                         help="Scan only, return raw content (for huginn pipeline)")
     args = parser.parse_args()
 
-    mode = "raw" if args.raw else ("passthrough" if args.passthrough else "summary")
+    # Default mode is extract -- the agent-safe path. raw/summary/passthrough are opt-in.
+    if args.raw:
+        mode = "raw"
+    elif args.passthrough:
+        mode = "passthrough"
+    elif args.summary:
+        mode = "summary"
+    else:
+        mode = "extract"
     result = process(args.url, mode=mode)
     print(format_output(result, json_mode=args.json))
 
